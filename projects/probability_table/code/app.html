@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Probability Table</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #07130d;
+    color: #eaf5ee;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  #stage { position: absolute; inset: 0; touch-action: none; }
+
+  #stats {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    left: 8px;
+    min-width: 176px;
+    max-width: 58%;
+    padding: 9px 11px;
+    border-radius: 12px;
+    background: rgba(6, 20, 13, 0.74);
+    border: 1px solid rgba(160, 230, 190, 0.22);
+    font-size: 13px;
+    line-height: 1.42;
+    pointer-events: none;
+  }
+  #stats .heading {
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #7fd6a4;
+    margin-top: 6px;
+  }
+  #stats .heading:first-child { margin-top: 0; }
+  #stats .row { display: flex; justify-content: space-between; gap: 8px; }
+  #stats .label { min-width: 20px; }
+  #stats .bar { color: #4fbf85; letter-spacing: -1.5px; }
+  #stats .expected { color: #6f9a80; font-size: 11px; }
+  #stats .note { color: #9ec4ae; font-size: 11px; }
+  #stats .swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+  #stats .total {
+    margin-top: 7px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(160, 230, 190, 0.2);
+    font-size: 15px;
+  }
+
+  #banner {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    right: 8px;
+    max-width: 38%;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(6, 20, 13, 0.6);
+    font-size: 11px;
+    line-height: 1.35;
+    color: #b9d9c6;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.4s ease;
+  }
+  #banner.faded { opacity: 0; }
+
+  #dock {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+    z-index: 10;
+    touch-action: manipulation;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 8px 8px;
+  }
+  .toolbar.hidden { display: none; }
+
+  .pill {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid rgba(160, 230, 190, 0.3);
+    background: rgba(10, 32, 21, 0.88);
+    color: #eaf5ee;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 13px;
+    border-radius: 999px;
+    touch-action: manipulation;
+  }
+  .pill:active { background: rgba(30, 78, 52, 0.95); }
+  .pill.primary {
+    background: #2f9e63;
+    border-color: #47c882;
+    padding: 10px 24px;
+  }
+  .break { flex-basis: 100%; height: 0; }
+
+  .colour-group {
+    display: flex;
+    align-items: stretch;
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+  }
+  .colour-group button {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 0;
+    width: 34px;
+    font-size: 17px;
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.65);
+    background: rgba(255, 255, 255, 0.24);
+    touch-action: manipulation;
+  }
+  .colour-group button:active { background: rgba(255, 255, 255, 0.5); }
+  .colour-group .count {
+    min-width: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.8);
+    padding: 9px 0;
+  }
+
+  #tabs {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 8px;
+  }
+  .tab {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid rgba(160, 230, 190, 0.22);
+    background: rgba(6, 20, 13, 0.7);
+    color: #8fb9a1;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 20px;
+    border-radius: 999px;
+    touch-action: manipulation;
+  }
+  .tab.active {
+    background: rgba(47, 158, 99, 0.9);
+    border-color: #47c882;
+    color: #ffffff;
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="stats"></div>
+<div id="banner">Tap to roll. Hold and drag to move.</div>
+
+<div id="dock">
+  <div class="toolbar" id="toolbar-dice">
+    <button class="pill" id="add-die">+ Die</button>
+    <button class="pill" id="remove-die">- Die</button>
+    <button class="pill" id="add-coin">+ Coin</button>
+    <button class="pill" id="remove-coin">- Coin</button>
+    <div class="break"></div>
+    <button class="pill primary" id="roll-all">Roll</button>
+    <button class="pill" id="roll-ten">x10</button>
+    <button class="pill" id="roll-hundred">x100</button>
+    <div class="break"></div>
+    <button class="pill" id="toggle-mode">Totals</button>
+    <button class="pill" id="tidy">Tidy</button>
+    <button class="pill" id="clear-stats">Clear</button>
+  </div>
+
+  <div class="toolbar hidden" id="toolbar-counters">
+    <div id="colour-controls" style="display:flex;flex-wrap:wrap;justify-content:center;gap:7px;"></div>
+    <div class="break"></div>
+    <button class="pill primary" id="draw-one">Draw</button>
+    <button class="pill" id="draw-five">x5</button>
+    <button class="pill" id="toggle-replacement">No replace</button>
+    <div class="break"></div>
+    <button class="pill" id="return-all">Return all</button>
+    <button class="pill" id="clear-draws">Clear</button>
+  </div>
+
+  <div id="tabs">
+    <button class="tab active" id="tab-dice">Dice &amp; Coins</button>
+    <button class="tab" id="tab-counters">Counters</button>
+  </div>
+</div>
+
+<script src="../../../library/vendor/threejs/three-r128.min.js"></script>
+<script src="./app.js?build=10"></script>
+</body>
+</html>

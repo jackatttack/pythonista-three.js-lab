@@ -1,0 +1,392 @@
+THREE.JS APP PATTERN
+====================
+
+How to build a local Three.js application that runs inside Pythonista on
+iPhone and iPad.
+
+This document is the standard for new apps of this kind in this project. It
+was written after building the Probability Table, and it records the things
+that were learned the hard way rather than only the things that are obvious.
+
+
+WHAT THIS PATTERN IS
+--------------------
+
+Python does not run the JavaScript. Two separate runtimes cooperate:
+
+    Python (Pythonista)
+        Validates local files, opens a ui.WebView, receives occasional
+        messages. It is a launcher and a gatekeeper, nothing more.
+
+    WKWebView (iOS)
+        The browser engine built into the operating system. It parses the
+        HTML, executes the JavaScript, and drives WebGL on the GPU.
+
+The two talk rarely and deliberately. Python must never be in the frame loop.
+
+This means the interactive part of the app is ordinary web code, with the
+full capability of a modern browser engine, presented as a native Pythonista
+app.
+
+
+REQUIRED ENVIRONMENT
+--------------------
+
+Pythonista 3 on iOS or iPadOS.
+
+Python imports are standard library plus two Pythonista built-ins:
+
+    json, os, re, time, urllib.parse      standard library
+    ui                                    Pythonista
+    objc_util                             Pythonista
+
+Nothing is installed with pip. Nothing is fetched at runtime.
+
+The one real dependency is the vendored Three.js runtime, which is not part
+of a fresh Pythonista install and must be present before an app will launch:
+
+    vendor/three-r128.min.js      603,445 bytes, Three.js revision 128
+    vendor/THREE_LICENSE.txt      the matching upstream MIT licence
+
+Pinned sources are recorded in the vendor README. A new environment needs
+that directory copied across, or the two files re-downloaded from the pinned
+URLs. Runnable pages must never fall back to a CDN.
+
+
+DIRECTORY LAYOUT
+----------------
+
+Each app is a self-contained folder:
+
+    projects/<app_name>/
+        README.txt
+        <app_name>_launcher.py
+        code/
+            app.py
+            app.html
+            app.js
+            smoke_test.py
+
+README.txt
+    What the app is, what it teaches or does, how to launch it, and the
+    current known issues. First thing a human or agent reads.
+
+<app_name>_launcher.py
+    The Pythonista entry point. Thin by design. It exists so the thing you
+    tap to run is obvious and lives at the top of the folder.
+
+    Name it after the app rather than calling it launcher.py. Pythonista's
+    recent-files list shows bare filenames without their folders, so several
+    apps each containing a launcher.py are impossible to tell apart.
+
+    The launcher finds code/ from its own location, so its name is free to
+    change as long as it stays in the app folder.
+
+code/
+    Everything that actually implements the app.
+
+The Three.js runtime is shared by every app rather than copied into each one:
+
+    library/vendor/threejs/three-r128.min.js
+    library/vendor/threejs/THREE_LICENSE.txt
+
+Reference it from the HTML with a relative path that climbs out of code/:
+
+    <script src="../../../library/vendor/threejs/three-r128.min.js"></script>
+
+Three levels for an app at projects/<app_name>/code/. This is confirmed
+working on device: WKWebView will load a file:// script from outside the
+directory containing the HTML.
+
+Point the Python host at the same shared file and let preflight assert its
+byte count, so a missing or altered runtime fails before presentation.
+
+
+THE LAUNCHER
+------------
+
+launcher.py stays small enough to read at a glance:
+
+    """
+    Pythonista entry point for <app name>.
+
+    Run this file directly in Pythonista. The implementation lives in code/.
+    """
+
+    import os
+    import sys
+
+    CODE_DIRECTORY = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "code",
+    )
+
+    if CODE_DIRECTORY not in sys.path:
+        sys.path.insert(0, CODE_DIRECTORY)
+
+    import app
+
+
+    if __name__ == "__main__":
+        app.main()
+
+Launch by running launcher.py directly in Pythonista.
+
+Do not RUN the launcher through Forge. It presents a fullscreen UI, which is
+not what a Forge run packet is for. Run the smoke test through Forge instead.
+
+
+THE PYTHON HOST
+---------------
+
+code/app.py owns four responsibilities and no more.
+
+1. Preflight validation.
+
+   Refuse to present anything when a local contract is broken. Check that
+   every required file exists, that the runtime is the expected byte size,
+   that the HTML references only local scripts, that the JavaScript contains
+   no network-capable API text, and that the build numbers agree.
+
+   A broken app should fail in the console with a specific message, not in
+   front of an audience with a blank screen.
+
+2. Build-number enforcement. See the next section.
+
+3. Presentation.
+
+       self.webview.load_url("file://" + HTML_PATH)
+       self.webview.present("fullscreen")
+
+4. A coarse bridge.
+
+   JavaScript sends a message by navigating to a bridge:// URL, which the
+   webview delegate intercepts and refuses to load. Python reads state by
+   calling evaluate_javascript against a named reporting function.
+
+   Both directions are for occasional, deliberate traffic. Never per-frame
+   state.
+
+
+THE BUILD NUMBER: THE MOST IMPORTANT RULE
+-----------------------------------------
+
+WKWebView caches file:// scripts across launches. An edited .js file can
+keep running its previous version indefinitely while the file on disk is
+plainly correct. This produces the most confusing possible symptom: newly
+added controls render, because the HTML is fresh, but do nothing, because
+the JavaScript that would bind them was never loaded.
+
+The defence is a version on the script URL.
+
+In the HTML:
+
+    <script src="./app.js?build=9"></script>
+
+At the top of the JavaScript:
+
+    var BUILD = 9;
+
+In preflight, extract both with regular expressions and refuse to launch
+when they disagree.
+
+Bump both together on every JavaScript change. The mismatch check turns a
+stale cache from a silent mystery into a loud, specific error before launch.
+
+Have the app show its build number on screen at startup:
+
+    showBanner('Build ' + BUILD + ' ready.');
+
+That single line is the fastest way to know whether the code being tested is
+the code that was written.
+
+
+TOUCH HANDLING
+--------------
+
+Touch on this platform is the second largest source of wasted time. These
+rules are not optional.
+
+Disable the native scroll view.
+
+    Pythonista hosts the WebView inside a UIScrollView whose pan gesture will
+    claim input meant for the page. Walk the native subview tree after the
+    page loads and disable scrolling and bouncing on it.
+
+Set touch-action: none on body.
+
+    This lets the WebGL surface own its gestures. Set touch-action:
+    manipulation on every control that should behave like a button.
+
+Do not rely on synthesised clicks.
+
+    Under touch-action: none, Safari does not reliably synthesise a click
+    event for controls. Bind both touchend and click, with a short guard flag
+    so one tap does not fire the action twice.
+
+A cancelled touch is not a tap.
+
+    iOS fires touchcancel when it decides a gesture was a pan. If the
+    touchcancel path falls through to the same code as touchend, every
+    interrupted drag is silently treated as a tap. Pass a wasCancelled flag
+    through to the release handler and take no action on a cancelled touch.
+
+Commit to a drag early.
+
+    Distinguishing a tap from a drag purely by distance travelled loses races
+    against the system gesture recogniser. Start a short timer on touchstart
+    and commit to dragging when it fires, or when movement passes a small
+    threshold, whichever happens first.
+
+Wrap every handler so failures are visible.
+
+    An exception inside a handler in a WebView dies silently. Route controls
+    through a single binder that catches errors and prints them to an on
+    screen element, and install window.onerror as a backstop.
+
+
+DIAGNOSING A DEAD CONTROL
+-------------------------
+
+When a control does nothing, do not theorise. Add a capture-phase listener on
+document for touchstart, touchend and click that prints what was actually
+hit, including document.elementFromPoint at the touch coordinates.
+
+Reading the result:
+
+    Names the control, handler runs
+        The binding works. The fault is in the action.
+
+    Names a different element
+        Something is overlapping the control. Fix layering.
+
+    Handler entered but never finished
+        An exception. The error message names it.
+
+    Nothing prints at all
+        The script is not running. Suspect a stale cache or a parse error,
+        not the control.
+
+That last case is worth dwelling on. A capture-phase listener on document
+fires for every tap anywhere. Total silence means the JavaScript never
+executed, which points at the build number or at a syntax error such as a
+duplicated block, and not at anything to do with the button.
+
+Keep the diagnostics behind a single flag and turn it off when finished.
+
+
+DECIDE FIRST, THEN ANIMATE
+--------------------------
+
+For anything where the animation represents a result, choose the result
+before the animation starts and make the animation settle on it.
+
+    var value = decideOutcome();
+    piece.animation = {
+        endQuaternion: restingRotationFor(value),
+        ...
+    };
+
+Never read a result out of a physics simulation. Simulated physics is fun and
+unreliable; a die that lands cocked, or that reports a face different from
+the one showing, destroys trust in the tool. Deciding first guarantees that
+what is displayed and what is recorded can never disagree.
+
+Record the outcome when the animation completes, guarded by a flag so it is
+counted exactly once.
+
+
+CODE ORGANISATION
+-----------------
+
+Put an editable settings block at the top of the JavaScript, above the
+implementation and below the build number:
+
+    /* ---------------- SETTINGS: safe to edit ---------------- */
+
+    var SETTINGS = {
+        ...
+    };
+
+Everything a person might reasonably want to change goes there: counts,
+limits, durations, colours, timing thresholds. Everything below it is
+machinery. Keep the two separated, and keep each decision in one place.
+
+Below that, group by responsibility in a readable order: fixed constants,
+state, textures, construction, outcomes, layout, interface rendering, input,
+frame loop, setup, host bridge.
+
+Comment why, not what. The touch rules above deserve comments explaining the
+platform behaviour that forced them, because the next reader will otherwise
+assume the workaround is unnecessary and remove it.
+
+
+THE SMOKE TEST
+--------------
+
+code/smoke_test.py runs the preflight and asserts the behavioural contracts
+without presenting any UI, so it is safe inside a Forge bundle.
+
+It should check:
+
+    - Preflight passes.
+    - The HTML and JavaScript build numbers match.
+    - Fragments the app depends on are present, such as the outcome
+      decision function and the host entry points.
+    - Any structural invariant, such as an expected number of configured
+      options.
+
+Run it after every change:
+
+    RUN projects/<app_name>/code/smoke_test.py
+
+Exit 0 means the files on disk are coherent. It does not mean the app looks
+right on the device. Device confirmation is a separate step and must not be
+claimed without it.
+
+
+EDITING DISCIPLINE
+------------------
+
+Prefer small, targeted REPLACE and INSERT operations over full-file
+rewrites once a file exists.
+
+Keep bundles small. A bundle with many mutating operations across several
+files will skip everything after the first failure, leaving the workspace
+half-changed and the packet hard to read.
+
+Verify after a failed or partial bundle. SEARCH for the symbols that should
+appear exactly once before assuming a file is correct. A duplicated block
+inside a JavaScript IIFE will stop the entire script from running while
+looking perfectly reasonable in isolation.
+
+Trust the returned packet over any assumption about what the files contain.
+
+
+BUILDING A NEW APP
+------------------
+
+1. Create the folder with README.txt, launcher.py and code/.
+2. Copy app.py from an existing app and adjust the paths, expected script
+   references and build patterns.
+3. Write app.html with the settings-free page structure, the controls, and
+   the two script tags: the vendored runtime, then the versioned app script.
+4. Write app.js starting with the build number and the settings block.
+5. Write smoke_test.py and run it through Forge until it passes.
+6. Launch launcher.py in Pythonista and confirm on device.
+7. Record what was confirmed on device, and what was not, in README.txt.
+
+
+REFERENCE IMPLEMENTATION
+------------------------
+
+The Probability Table demonstrates every rule in this document:
+
+    projects/astra_3d_lab/source/threejs_lab/probability_lab.py
+    projects/astra_3d_lab/source/threejs_lab/probability_lab.html
+    projects/astra_3d_lab/source/threejs_lab/probability_lab.js
+    projects/astra_3d_lab/source/threejs_lab/probability_lab_smoke_test.py
+
+It predates this layout and is still flat rather than split into a launcher
+and a code directory. Read it for the runtime patterns, not the file
+arrangement.

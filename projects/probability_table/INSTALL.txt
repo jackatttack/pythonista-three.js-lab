@@ -1,0 +1,96 @@
+INSTALLING ON A NEW DEVICE
+==========================
+
+For a Pythonista device that already runs Forge.
+
+Two things must arrive: the app files, and the shared Three.js runtime. They
+travel separately, because the runtime lives outside any project folder and
+is shared by every app built to this pattern.
+
+
+1. THE APP FILES
+----------------
+
+Preview what would change:
+
+    GIT plan
+    PROFILE: threejs-lab
+    LOCAL: projects/probability_table
+    REMOTE: projects/probability_table
+
+Read the preview. It lists files that would be created or updated, files that
+are unchanged, and device-only files that will be preserved.
+
+Then apply it:
+
+    GIT pull
+    PROFILE: threejs-lab
+    LOCAL: projects/probability_table
+    REMOTE: projects/probability_table
+    CONFIRM: yes
+
+
+2. THE THREE.JS RUNTIME
+-----------------------
+
+The runtime is not in the repository. It is fetched from its pinned upstream
+source so the bytes come from the canonical build rather than through a
+text-file transfer that might re-encode them.
+
+Download it:
+
+    URL https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js
+    MODE: download
+    DEST: library/vendor/threejs/three-r128.min.js
+
+Download the matching licence:
+
+    URL https://raw.githubusercontent.com/mrdoob/three.js/r128/LICENSE
+    MODE: download
+    DEST: library/vendor/threejs/THREE_LICENSE.txt
+
+Copy verify_runtime.py and README.txt into library/vendor/threejs/ from
+another device, or from this repository's vendor_support/ folder.
+
+Then verify:
+
+    RUN library/vendor/threejs/verify_runtime.py
+
+It must print THREE.JS RUNTIME: VERIFIED. It checks the byte count and the
+SHA-256 against the pinned build. Do not proceed if it fails: a corrupted or
+different runtime version will fail app preflight or misbehave at runtime.
+
+
+3. CONFIRM THE INSTALL
+----------------------
+
+Run the app's own checks:
+
+    RUN projects/probability_table/code/smoke_test.py
+
+Expect exit 0 and a build number in the printed report.
+
+Then launch on device:
+
+    projects/probability_table/probability_table_launcher.py
+
+The banner shows the build number at startup. If it matches the smoke test
+report, the correct code is running.
+
+A passing smoke test proves the files are coherent. It does not prove the app
+looks right. Confirm on device before relying on it in a lesson.
+
+
+IF SOMETHING FAILS
+------------------
+
+Preflight refuses to launch when the HTML and JavaScript build numbers
+disagree, or when the runtime is missing or the wrong size. The error names
+the specific problem.
+
+A blank screen with no error usually means Three.js did not load. Check the
+runtime is present at library/vendor/threejs/ and that verify_runtime.py
+passes.
+
+THREEJS_APP_PATTERN.txt has a full section on diagnosing controls that do not
+respond.
